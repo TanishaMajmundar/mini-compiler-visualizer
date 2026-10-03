@@ -1,0 +1,2 @@
+// Parentheses override precedence
+x = (a + b) * (c - d) / 2;
