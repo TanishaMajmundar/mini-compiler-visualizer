@@ -3,20 +3,25 @@
 Input : list of Token (from the lexer)
 Output: Node (root of the tree). Raises CompileError on the first syntax error.
 
-Tier 1 grammar (left recursion replaced by loops):
+Grammar (left recursion replaced by loops):
 
     Program -> Stmt*
-    Stmt    -> id = Expr ;
+    Stmt    -> Decl | Assign | If | While | Block
+    Decl    -> (int | float) id [ = Expr ] ;
+    Assign  -> id = Expr ;
+    If      -> if ( Cond ) Block [ else Block ]
+    While   -> while ( Cond ) Block
+    Block   -> { Stmt* }
+    Cond    -> Expr relop Expr
     Expr    -> Term { (+ | -) Term }
     Term    -> Factor { (* | /) Factor }
     Factor  -> ( Expr ) | id | num
 
 Precedence comes from the grammar levels: Term (* /) sits below Expr (+ -),
-so * and / bind tighter. Using a loop (not recursion) on the left makes
-+ - * / left-associative:  8 - 3 - 2  is  (8 - 3) - 2.
+so * and / bind tighter. Using a loop on the left makes the operators
+left-associative:  8 - 3 - 2  is  (8 - 3) - 2.
 
-The tree we build is an AST (abstract syntax tree): no nodes for ';' or '(',
-only the meaningful parts.
+The tree is an AST (abstract syntax tree): no nodes for ';', '(' or '{'.
 """
 
 from dataclasses import dataclass, field
@@ -29,10 +34,18 @@ from compiler.lexer import Token
 class Node:
     """One node of the tree.
 
-    kind     -> what the node is: Program, Assign, BinOp, Id, Num
-    label    -> text shown in the drawing: "=", "+", "x", "5"
+    kind     -> Program, Decl, Assign, If, While, Block, Cond, BinOp, Id, Num
+    label    -> text shown in the drawing: "=", "+", "x", "5", "int"
     children -> sub-nodes (empty for leaves like Id and Num)
     line     -> source line where it starts
+
+    Children layout for the statement nodes:
+        Decl  : [Id, init_expr?]        label = the type ("int" / "float")
+        Assign: [Id, expr]
+        If    : [Cond, then_Block, else_Block?]
+        While : [Cond, Block]
+        Block : [statements...]
+        Cond  : [left_expr, right_expr] label = the relational operator
     """
 
     kind: str
@@ -90,7 +103,12 @@ class Parser:
             line = self.tokens[self.pos - 1].line
         raise self.fail(shown, line)
 
-    # ---------- grammar rules (one method per rule) --------------------
+    def at_keyword(self, word: str) -> bool:
+        """True if the current token is the given keyword."""
+        token = self.peek()
+        return token.type == "KEYWORD" and token.lexeme == word
+
+    # ---------- statements ---------------------------------------------
 
     def parse_program(self) -> Node:
         """Program -> Stmt*"""
@@ -100,10 +118,34 @@ class Parser:
         return Node("Program", "Program", statements, line=1)
 
     def parse_stmt(self) -> Node:
-        """Stmt -> id = Expr ;   (Tier 2 will add declarations, if, while)"""
-        if self.peek().type == "ID":
+        """Stmt -> Decl | Assign | If | While | Block
+
+        The first token tells us which rule to use (no backtracking needed).
+        """
+        token = self.peek()
+        if token.type == "KEYWORD":
+            if token.lexeme in ("int", "float"):
+                return self.parse_decl()
+            if token.lexeme == "if":
+                return self.parse_if()
+            if token.lexeme == "while":
+                return self.parse_while()
+        elif token.type == "ID":
             return self.parse_assign()
-        raise self.fail("identifier")
+        elif token.type == "LBRACE":
+            return self.parse_block()
+        raise self.fail("a statement")
+
+    def parse_decl(self) -> Node:
+        """Decl -> (int | float) id [ = Expr ] ;"""
+        type_token = self.advance()
+        name = self.expect("ID", "identifier")
+        children = [Node("Id", name.lexeme, [], name.line)]
+        if self.peek().type == "ASSIGN":
+            self.advance()
+            children.append(self.parse_expr())
+        self.expect("SEMI", "';'", report_previous_line=True)
+        return Node("Decl", type_token.lexeme, children, type_token.line)
 
     def parse_assign(self) -> Node:
         """Assign -> id = Expr ;"""
@@ -113,6 +155,50 @@ class Parser:
         self.expect("SEMI", "';'", report_previous_line=True)
         target = Node("Id", name.lexeme, [], name.line)
         return Node("Assign", "=", [target, value], name.line)
+
+    def parse_if(self) -> Node:
+        """If -> if ( Cond ) Block [ else Block ]"""
+        keyword = self.advance()
+        condition = self.parse_condition()
+        then_block = self.parse_block()
+        children = [condition, then_block]
+        if self.at_keyword("else"):
+            self.advance()
+            children.append(self.parse_block())
+        return Node("If", "if", children, keyword.line)
+
+    def parse_while(self) -> Node:
+        """While -> while ( Cond ) Block"""
+        keyword = self.advance()
+        condition = self.parse_condition()
+        body = self.parse_block()
+        return Node("While", "while", [condition, body], keyword.line)
+
+    def parse_block(self) -> Node:
+        """Block -> { Stmt* }"""
+        open_brace = self.expect("LBRACE", "'{'")
+        statements = []
+        while self.peek().type not in ("RBRACE", "EOF"):
+            statements.append(self.parse_stmt())
+        self.expect("RBRACE", "'}'")
+        return Node("Block", "{ }", statements, open_brace.line)
+
+    def parse_condition(self) -> Node:
+        """( Cond )  where  Cond -> Expr relop Expr
+
+        The parentheses belong to the if/while statement, so they are
+        consumed here and do not appear in the tree.
+        """
+        self.expect("LPAREN", "'('")
+        left = self.parse_expr()
+        if self.peek().type != "RELOP":
+            raise self.fail("relational operator (<, >, <=, >=, ==, !=)")
+        op = self.advance()
+        right = self.parse_expr()
+        self.expect("RPAREN", "')'")
+        return Node("Cond", op.lexeme, [left, right], op.line)
+
+    # ---------- expressions --------------------------------------------
 
     def parse_expr(self) -> Node:
         """Expr -> Term { (+ | -) Term }"""

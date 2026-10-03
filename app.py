@@ -26,13 +26,16 @@ def load_samples() -> dict[str, str]:
     return samples
 
 
-def show_errors(result: CompileResult) -> None:
-    """Show each error with the offending source line."""
+def show_issues(result: CompileResult) -> None:
+    """Show each error (red) and warning (yellow) with the offending source line."""
     lines = result.source.splitlines()
-    for error in result.errors:
-        st.error(str(error))
-        if 1 <= error.line <= len(lines):
-            st.code(f"{error.line} | {lines[error.line - 1]}", language=None)
+    for issue in result.errors + result.warnings:
+        if issue.severity == "error":
+            st.error(str(issue))
+        else:
+            st.warning(str(issue))
+        if 1 <= issue.line <= len(lines):
+            st.code(f"{issue.line} | {lines[issue.line - 1]}", language=None)
 
 
 def show_not_available(phase: str) -> None:
@@ -40,14 +43,13 @@ def show_not_available(phase: str) -> None:
 
 
 def show_results(result: CompileResult) -> None:
-    """Draw errors (if any) and one tab per phase."""
-    if result.errors:
-        show_errors(result)
-    else:
+    """Draw errors/warnings (if any) and one tab per phase."""
+    if result.ok:
         st.success("Compilation successful.")
+    show_issues(result)
 
-    tab_tokens, tab_tree, tab_tac, tab_quads, tab_triples = st.tabs(
-        ["Tokens", "Parse Tree", "TAC", "Quadruples", "Triples"]
+    tab_tokens, tab_tree, tab_symbols, tab_tac, tab_quads, tab_triples = st.tabs(
+        ["Tokens", "Parse Tree", "Symbol Table", "TAC", "Quadruples", "Triples"]
     )
 
     with tab_tokens:
@@ -69,15 +71,30 @@ def show_results(result: CompileResult) -> None:
             with st.expander("Text view"):
                 st.code(tree_to_text(result.tree), language=None)
 
-    with tab_tac:
+    with tab_symbols:
         if result.tree is None:
             show_not_available("parsing")
+        elif not result.symbols:
+            st.info("No variables declared.")
+        else:
+            rows = [
+                {"Name": s.name, "Type": s.type, "Scope": s.scope, "Line": s.line}
+                for s in result.symbols
+            ]
+            st.dataframe(rows, hide_index=True)
+
+    # TAC / quadruples / triples exist only if semantic analysis passed.
+    codegen_done = result.ok and result.tree is not None
+
+    with tab_tac:
+        if not codegen_done:
+            show_not_available("code generation")
         else:
             st.code("\n".join(str(i) for i in result.tac) or "(empty)", language=None)
 
     with tab_quads:
-        if result.tree is None:
-            show_not_available("parsing")
+        if not codegen_done:
+            show_not_available("code generation")
         else:
             rows = [
                 {
@@ -92,8 +109,8 @@ def show_results(result: CompileResult) -> None:
             st.dataframe(rows, hide_index=True)
 
     with tab_triples:
-        if result.tree is None:
-            show_not_available("parsing")
+        if not codegen_done:
+            show_not_available("code generation")
         else:
             rows = [
                 {"#": t.index, "op": t.op, "arg1": t.arg1, "arg2": t.arg2 or ""}
@@ -105,13 +122,13 @@ def show_results(result: CompileResult) -> None:
 # ----------------------------- page layout -------------------------------
 
 st.title("End-to-End Mini Compiler with Compiler Phase Visualization")
-st.caption("Source → Lexer → Parser → TAC → Quadruples / Triples")
+st.caption("Source → Lexer → Parser → Semantic Analyzer → TAC → Quadruples / Triples")
 
 samples = load_samples()
 choice = st.selectbox("Sample program", list(samples.keys()))
 
 # The key includes the sample name, so picking a new sample resets the editor.
-code = st.text_area("Source code", value=samples[choice], height=220, key=f"editor_{choice}")
+code = st.text_area("Source code", value=samples[choice], height=260, key=f"editor_{choice}")
 
 if st.button("Compile", type="primary"):
     st.session_state["result"] = compile_source(code)

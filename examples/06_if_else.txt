@@ -1,0 +1,7 @@
+int score = 72;
+int grade = 0;
+if (score >= 50) {
+    grade = 1;
+} else {
+    grade = 2;
+}

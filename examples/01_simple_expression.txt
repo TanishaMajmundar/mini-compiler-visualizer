@@ -1,4 +1,4 @@
-// Simple arithmetic with precedence
-a = 10;
-b = 20;
-c = a + b * 2;
+// * is done before +
+int a = 2;
+int b = 3;
+int x = a + b * 4;

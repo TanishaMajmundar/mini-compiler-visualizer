@@ -9,7 +9,12 @@ from compiler.parser import Node
 # Fill colour for each kind of node in the drawing.
 COLORS = {
     "Program": "#E8EAF6",
+    "Decl": "#D1C4E9",
     "Assign": "#FFE0B2",
+    "If": "#F8BBD0",
+    "While": "#F8BBD0",
+    "Block": "#ECEFF1",
+    "Cond": "#B2EBF2",
     "BinOp": "#C8E6C9",
     "Id": "#BBDEFB",
     "Num": "#FFF9C4",

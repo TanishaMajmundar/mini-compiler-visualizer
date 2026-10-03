@@ -68,6 +68,6 @@ def test_missing_operand():
     assert err.message == "expected identifier, number or '(' but found '*'"
 
 
-def test_statement_must_start_with_identifier():
+def test_statement_must_start_with_a_statement():
     err = fails_with("= 5;")
-    assert err.message == "expected identifier but found '='"
+    assert err.message == "expected a statement but found '='"
