@@ -9,6 +9,7 @@ from pathlib import Path
 
 import streamlit as st
 
+from compiler.optimizer import side_by_side
 from compiler.pipeline import CompileResult, compile_source
 from compiler.visualize import tree_to_dot, tree_to_text
 
@@ -42,14 +43,64 @@ def show_not_available(phase: str) -> None:
     st.info(f"Not available: the {phase} phase did not finish.")
 
 
+def show_optimization(result: CompileResult) -> None:
+    """Before/after side by side, then the change log."""
+    if not result.tac:
+        st.info("No code was generated, so there is nothing to optimize.")
+        return
+
+    rows = side_by_side(result.tac, result.optimized, result.changes)
+    before_lines, after_lines = [], []
+    for row in rows:
+        if row.status == "removed":
+            before_lines.append(f"- {row.before}")
+            after_lines.append("  (removed)")
+        elif row.status == "changed":
+            before_lines.append(f"- {row.before}")
+            after_lines.append(f"+ {row.after}")
+        else:
+            before_lines.append(f"  {row.before}")
+            after_lines.append(f"  {row.after}")
+
+    st.caption(
+        f"{len(result.tac)} instructions → {len(result.optimized)} instructions "
+        f"({len(result.changes)} changes).  "
+        "Red '-' = changed or removed line, green '+' = its new version."
+    )
+    left, right = st.columns(2)
+    with left:
+        st.markdown("**Before**")
+        st.code("\n".join(before_lines), language="diff")
+    with right:
+        st.markdown("**After**")
+        st.code("\n".join(after_lines), language="diff")
+
+    if not result.changes:
+        st.info("Nothing to optimize in this program.")
+        return
+
+    st.markdown("**Change log**")
+    log_rows = [
+        {
+            "#": c.index,
+            "Optimization": c.kind,
+            "Before": c.before,
+            "After": c.after if c.after is not None else "(removed)",
+            "Why": c.note,
+        }
+        for c in result.changes
+    ]
+    st.dataframe(log_rows, hide_index=True)
+
+
 def show_results(result: CompileResult) -> None:
     """Draw errors/warnings (if any) and one tab per phase."""
     if result.ok:
         st.success("Compilation successful.")
     show_issues(result)
 
-    tab_tokens, tab_tree, tab_symbols, tab_tac, tab_quads, tab_triples = st.tabs(
-        ["Tokens", "Parse Tree", "Symbol Table", "TAC", "Quadruples", "Triples"]
+    tab_tokens, tab_tree, tab_symbols, tab_tac, tab_quads, tab_triples, tab_opt = st.tabs(
+        ["Tokens", "Parse Tree", "Symbol Table", "TAC", "Quadruples", "Triples", "Optimized"]
     )
 
     with tab_tokens:
@@ -83,7 +134,7 @@ def show_results(result: CompileResult) -> None:
             ]
             st.dataframe(rows, hide_index=True)
 
-    # TAC / quadruples / triples exist only if semantic analysis passed.
+    # TAC / quadruples / triples / optimized exist only if semantic analysis passed.
     codegen_done = result.ok and result.tree is not None
 
     with tab_tac:
@@ -118,11 +169,17 @@ def show_results(result: CompileResult) -> None:
             ]
             st.dataframe(rows, hide_index=True)
 
+    with tab_opt:
+        if not codegen_done:
+            show_not_available("code generation")
+        else:
+            show_optimization(result)
+
 
 # ----------------------------- page layout -------------------------------
 
 st.title("End-to-End Mini Compiler with Compiler Phase Visualization")
-st.caption("Source → Lexer → Parser → Semantic Analyzer → TAC → Quadruples / Triples")
+st.caption("Source → Lexer → Parser → Semantic Analyzer → TAC → Optimizer")
 
 samples = load_samples()
 choice = st.selectbox("Sample program", list(samples.keys()))

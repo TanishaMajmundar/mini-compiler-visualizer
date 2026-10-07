@@ -1,0 +1,4 @@
+int width = 4;
+int height = 5;
+int area = width * height;
+int doubled = area * 2;

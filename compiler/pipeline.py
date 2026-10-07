@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from compiler.codegen import TACInstruction, Triple, generate, to_triples
 from compiler.errors import CompileError
 from compiler.lexer import Token, tokenize
+from compiler.optimizer import Change, optimize
 from compiler.parser import Node, parse
 from compiler.semantic import Symbol, analyze
 
@@ -25,6 +26,8 @@ class CompileResult:
     symbols: list[Symbol] = field(default_factory=list)
     tac: list[TACInstruction] = field(default_factory=list)
     triples: list[Triple] = field(default_factory=list)
+    optimized: list[TACInstruction] = field(default_factory=list)
+    changes: list[Change] = field(default_factory=list)
     errors: list[CompileError] = field(default_factory=list)
     warnings: list[CompileError] = field(default_factory=list)
     failed_phase: str | None = None   # "Lexical", "Syntax", "Semantic" or None
@@ -67,4 +70,7 @@ def compile_source(source: str) -> CompileResult:
     # Phase 4: code generation (TAC, then triples)
     result.tac = generate(result.tree)
     result.triples = to_triples(result.tac)
+
+    # Phase 5: optimization (the original TAC is kept for the before/after view)
+    result.optimized, result.changes = optimize(result.tac)
     return result
