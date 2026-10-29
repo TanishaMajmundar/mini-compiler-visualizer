@@ -72,6 +72,7 @@ CSS = """
 }
 
 html, body, .stApp, [class*="css"] { font-family: 'Source Sans 3', system-ui, sans-serif; color: var(--ink); }
+html { font-size: 87.5%; }
 .stApp { background: var(--page); }
 .stApp p, .stApp label, .stApp li { font-size: 1.08rem; }
 header[data-testid="stHeader"] { display: none; }
